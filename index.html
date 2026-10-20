@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>سكن الرعب - اللعب الجماعي أونلاين</title>
+    <!-- استدعاء مكتبة الفايربيز للربط السحابي الفوري -->
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
+    <style>
+        body {
+            background-color: #0f172a;
+            color: #f8fafc;
+            font-family: Tahoma, sans-serif;
+            text-align: center;
+            margin: 0;
+            padding: 10px;
+        }
+        h1 { color: #38bdf8; margin: 5px; font-size: 20px; }
+        .stats {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            background: #1e293b;
+            padding: 8px;
+            border-radius: 8px;
+            margin-bottom: 8px;
+            font-size: 14px;
+        }
+        .stats span { color: #4ade80; font-weight: bold; }
+        
+        .game-container {
+            max-width: 400px;
+            margin: 0 auto;
+            background: #1e293b;
+            border: 3px solid #334155;
+            border-radius: 12px;
+            padding: 12px;
+            position: relative;
+        }
+
+        .room {
+            background: #0f172a;
+            border: 2px dashed #475569;
+            border-radius: 8px;
+            padding: 10px;
+            min-height: 220px;
+            position: relative;
+        }
+
+        .bed, .door-section {
+            background: #334155;
+            padding: 8px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .bed { background: #1e40af; }
+        .door-section { background: #475569; }
+
+        .turrets-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+
+        .slot {
+            background: #1e293b;
+            border: 1px solid #475569;
+            border-radius: 6px;
+            padding: 6px;
+            font-size: 11px;
+            cursor: pointer;
+            transition: 0.2s;
+        }
+        .slot:hover { background: #334155; }
+
+        button {
+            background: #10b981;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-weight: bold;
+            margin-top: 3px;
+            font-size: 11px;
+        }
+        button:hover { background: #059669; }
+
+        .monster-status {
+            margin-top: 10px;
+            background: #7f1d1d;
+            border: 1px solid #ef4444;
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 12px;
+        }
+
+        .lobby {
+            background: #1e293b;
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 20px;
+        }
+
+        .hidden { display: none !important; }
+        
+        .game-over {
+            position: absolute;
+            top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(15, 23, 42, 0.95);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            border-radius: 12px;
+            z-index: 10;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>🏰 سكن الرعب - أونلاين جماعي</h1>
+
+    <!-- شاشة اختيار الغرفة / الدخول مع الصديق -->
+    <div id="lobby-screen" class="lobby">
+        <h3>اختر غرفتك للعب مع صديقك:</h3>
+        <p style="font-size: 12px; color: #94a3b8;">أنت وصديقك يجب أن تدخلا إلى غرفتين مختلفتين بنفس رابط اللعبة!</p>
+        <button onclick="joinRoom('room1')" style="background: #3b82f6; font-size: 14px; padding: 8px 15px;">دخول الغرفة (1)</button>
+        <button onclick="joinRoom('room2')" style="background: #8b5cf6; font-size: 14px; padding: 8px 15px;">دخول الغرفة (2)</button>
+    </div>
+
+    <!-- واجهة اللعبة الأساسية -->
+    <div id="game-main" class="hidden">
+        <div class="stats">
+            <div>الذهب: <span id="gold">30</span> 🪙</div>
+            <div>الغرفة: <span id="my-room-name">-</span></div>
+        </div>
+
+        <div class="game-container">
+            <div class="room">
+                <div class="bed">
+                    🛏️ السرير (مستوى <span id="bed-level">1</span>) | دخل: <span id="bed-income">2</span>/ث<br>
+                    <button onclick="upgradeBed()">ترقية (<span id="bed-cost">20</span> ذهب)</button>
+                </div>
+
+                <div class="door-section">
+                    🚪 باب غرفتك (HP: <span id="door-hp">150</span>/<span id="door-max-hp">150</span>)<br>
+                    <button onclick="upgradeDoor()">ترقية الباب (<span id="door-cost">15</span> ذهب)</button>
+                </div>
+
+                <div class="turrets-grid">
+                    <div class="slot" id="slot-0" onclick="buildTurret(0)">➕ برج 1 (25 ذهب)</div>
+                    <div class="slot" id="slot-1" onclick="buildTurret(1)">➕ برج 2 (25 ذهب)</div>
+                </div>
+            </div>
+
+            <div class="monster-status" id="monster-box">
+                👻 حالة الوحش: ينتظر اللاعبين...
+            </div>
+
+            <div id="game-over-screen" class="game-over hidden">
+                <h2 style="color: #ef4444;">لقد تم القضاء عليك! 💀</h2>
+                <p>الوحش حطم باب غرفتك والتهمك.</p>
+            </div>
+        </div>
+    </div>
+
+<script>
+    // إعدادات اتصال الفايربيز السحابي المجاني للعبة
+    const firebaseConfig = {
+        databaseURL: "https://silent-castle-online-default-rtdb.firebaseio.com/"
+    };
+    firebase.initializeApp(firebaseConfig);
+    const db = firebase.database();
+
+    let myRoom = null;
+    let gold = 30;
+    let bedLevel = 1, bedCost = 20, bedIncome = 2;
+    let doorHp = 150, doorMaxHp = 150, doorLevel = 1, doorCost = 15;
+    let turrets = [null, null];
+    let isDead = false;
+
+    function joinRoom(roomName) {
+        myRoom = roomName;
+        document.getElementById("my-room-name").innerText = roomName === 'room1' ? 'الغرفة 1' : 'الغرفة 2';
+        document.getElementById("lobby-screen").classList.add("hidden");
+        document.getElementById("game-main").classList.remove("hidden");
+
+        // تهيئة بيانات الغرفة في السحابة إذا لم تكن موجودة
+        db.ref('rooms/' + myRoom).set({
+            doorHp: 150,
+            doorMaxHp: 150,
+            isAlive: true
+        });
+
+        startPlayerLoop();
+        listenToMonster();
+    }
+
+    // توليد الذهب تلقائياً كل ثانية
+    function startPlayerLoop() {
+        setInterval(() => {
+            if (isDead) return;
+            gold += bedIncome;
+            updateUI();
+        }, 1000);
+    }
+
+    function updateUI() {
+        document.getElementById("gold").innerText = gold;
+        document.getElementById("bed-level").innerText = bedLevel;
+        document.getElementById("bed-income").innerText = bedIncome;
+        document.getElementById("bed-cost").innerText = bedCost;
+        document.getElementById("door-hp").innerText = Math.max(0, doorHp);
+        document.getElementById("door-max-hp").innerText = doorMaxHp;
+        document.getElementById("door-cost").innerText = doorCost;
+    }
+
+    function upgradeBed() {
+        if (gold >= bedCost) {
+            gold -= bedCost;
+            bedLevel++;
+            bedIncome += 2;
+            bedCost = Math.floor(bedCost * 1.7);
+            updateUI();
+        }
+    }
+
+    function upgradeDoor() {
+        if (gold >= doorCost) {
+            gold -= doorCost;
+            doorLevel++;
+            doorMaxHp += 70;
+            doorHp = doorMaxHp;
+            doorCost = Math.floor(doorCost * 1.6);
+            updateUI();
+            // تحديث صحة الباب في السحابة
+            db.ref('rooms/' + myRoom).update({ doorHp: doorHp, doorMaxHp: doorMaxHp });
+        }
+    }
+
+    function buildTurret(index) {
+        let cost = 25 * (turrets[index] ? turrets[index] + 1 : 1);
+        if (gold >= cost) {
+            gold -= cost;
+            if (!turrets[index]) turrets[index] = 1;
+            else turrets[index]++;
+            
+            let slot = document.getElementById(`slot-${index}`);
+            slot.innerHTML = `🔫 برج ${index+1} (مستوى ${turrets[index]})<br>ترقية: ${25*(turrets[index]+1)}`;
+            updateUI();
+        }
+    }
+
+    // الاستماع لحركة الوحش وسلوكه المشترك أونلاين
+    function listenToMonster() {
+        // مراقبة هجوم الأبراج على الوحش وتحديث حالته المركزية
+        setInterval(() => {
+            if (isDead || !myRoom) return;
+
+            let totalDmg = 0;
+            turrets.forEach(t => { if (t) totalDmg += t * 4; });
+
+            db.ref('monster').once('value', (snapshot) => {
+                let monster = snapshot.val();
+                if (!monster) return;
+
+                let currentMHP = monster.hp - totalDmg;
+                let targetRoom = monster.targetRoom;
+
+                // إذا كان الوحش يهاجم غرفتي حالياً
+                if (targetRoom === myRoom) {
+                    // إطلاق النار من الأبراج وتخفيض دم الوحش
+                    if (currentMHP <= 20 && monster.state === 'attacking') {
+                        // الوحش يكاد يموت -> يهرب ويعود بصحة كاملة ويهاجم الغرفة الأخرى!
+                        let otherRoom = myRoom === 'room1' ? 'room2' : 'room1';
+                        db.ref('monster').set({
+                            hp: 500,
+                            maxHp: 500,
+                            level: monster.level + 1,
+                            power: monster.power + 2,
+                            targetRoom: otherRoom,
+                            state: 'escaping'
+                        });
+                        document.getElementById("monster-box").innerHTML = `💨 الوحش كاد أن يموت فهرب وتوجه نحو الغرفة الأخرى!`;
+                    } else if (currentMHP <= 0) {
+                        db.ref('monster').update({ hp: 0 });
+                    } else {
+                        db.ref('monster').update({ hp: currentMHP });
+                    }
+
+                    // الوحش يهاجم باب غرفتي
+                    doorHp -= Math.max(1, monster.power - Math.floor(doorLevel * 0.3));
+                    db.ref('rooms/' + myRoom).update({ doorHp: doorHp });
+
+                    if (doorHp <= 0) {
+                        isDead = true;
+                        db.ref('rooms/' + myRoom).update({ isAlive: false });
+                        document.getElementById("game-over-screen").classList.remove("hidden");
+                    }
+                }
+            });
+        }, 1500);
+
+        // مراقبة عامة لحالة الوحش لعرضها على الشاشة
+        db.ref('monster').on('value', (snapshot) => {
+            let m = snapshot.val();
+            if (m) {
+                let box = document.getElementById("monster-box");
+                box.innerHTML = `👻 الوحش في (${m.targetRoom === 'room1' ? 'الغرفة 1' : 'الغرفة 2'})<br>دم الوحش: ${m.hp}/${m.maxHp} | المستوى: ${m.level} (قوة الضرر: ${m.power})`;
+            }
+        });
+
+        // إذا كانت الغرفة هي الأولى، قم بإنشاء الوحش لأول مرة لتتم المزامنة
+        db.ref('monster').once('value', (snapshot) => {
+            if (!snapshot.exists() && myRoom === 'room1') {
+                db.ref('monster').set({
+                    hp: 500,
+                    maxHp: 500,
+                    level: 1,
+                    power: 2,
+                    targetRoom: 'room1',
+                    state: 'attacking'
+                });
+            }
+        });
+    }
+
+    // نظام تطوير قوة الوحش تلقائياً كل دقيقة (60 ثانية)
+    setInterval(() => {
+        if (myRoom === 'room1') { // لاعب واحد فقط يتحكم بتحديثات النظام لتجنب التعارض
+            db.ref('monster').once('value', (snapshot) => {
+                let m = snapshot.val();
+                if (m) {
+                    let newPower = m.power + 3;
+                    let newMaxHp = m.maxHp + 200;
+                    db.ref('monster').update({
+                        power: newPower,
+                        maxHp: newMaxHp,
+                        hp: newMaxHp,
+                        level: m.level + 1
+                    });
+                }
+            });
+        }
+    }, 60000);
+</script>
+
+</body>
+</html>
